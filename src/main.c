@@ -49,6 +49,11 @@
 #define ZERO MKBADDR(NULL)
 #endif
 
+#include "mode-winuae.h"
+
+static int smb2fs_read_uaefsdb(const char *path, char *buffer, size_t size);
+static int smb2fs_write_uaefsdb(const char *path, char *buffer, size_t size);
+
 struct fuse_context *_fuse_context_;
 
 static const char cmd_template[] = 
@@ -472,7 +477,7 @@ static void smb2fs_fillstat(struct fbx_stat *stbuf, const struct smb2_stat_64 *s
 			stbuf->st_mode = S_IFLNK;
 			break;
 	}
-	stbuf->st_mode |= S_IRWXU; /* Can we do something better? */
+	//stbuf->st_mode |= S_IRWXU; /* Can we do something better? */
 
 	stbuf->st_ino       = smb2_st->smb2_ino;
 	stbuf->st_nlink     = smb2_st->smb2_nlink;
@@ -485,10 +490,9 @@ static void smb2fs_fillstat(struct fbx_stat *stbuf, const struct smb2_stat_64 *s
 	stbuf->st_ctimensec = smb2_st->smb2_ctime_nsec;
 }
 
-static int smb2fs_getattr(const char *path, struct fbx_stat *stbuf)
-{
-	// KPrintF((STRPTR)"[smb2fs] smb2fs_getattr started.\n");
+static int smb2fs_utimens(const char *path, const struct timespec *ts) {
 	struct smb2_stat_64 smb2_st;
+	struct smb2_basic_info smb2_bi;
 	int                 rc;
 	char                pathbuf[MAXPATHLEN];
 
@@ -527,7 +531,229 @@ static int smb2fs_getattr(const char *path, struct fbx_stat *stbuf)
 		}
 	} while(rc < 0);
 
+	smb2_bi.smb2_atime = smb2_st.smb2_atime;
+	smb2_bi.smb2_atime_nsec = smb2_st.smb2_atime_nsec;
+	smb2_bi.smb2_btime = smb2_st.smb2_btime;
+	smb2_bi.smb2_btime_nsec = smb2_st.smb2_btime_nsec;
+	smb2_bi.smb2_ctime = smb2_st.smb2_ctime;
+	smb2_bi.smb2_ctime_nsec = smb2_st.smb2_ctime_nsec;
+	smb2_bi.smb2_mtime = ts[0].tv_sec;
+	smb2_bi.smb2_mtime_nsec = ts[0].tv_nsec;
+
+	smb2_bi.smb2_raw_file_attributes = smb2_st.smb2_raw_file_attributes;
+
+	do {
+		rc = smb2_setbasicattributes(fsd->smb2, path, &smb2_bi);
+		if(rc < -1)
+		{
+			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+			return rc;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+    return 0;
+}
+
+static int smb2fs_chmod(const char *path, uint32_t protectionbits)
+{
+	struct smb2_stat_64 smb2_st;
+	struct smb2_basic_info smb2_bi;
+	int                 rc;
+	char                pathbuf[MAXPATHLEN];
+	size_t				uaefsdb_size = 0;
+	u_int8_t			uaefsdb_buffer[UAEFSDB2_LEN];
+
+	if (fsd == NULL)
+	{
+		if(cfg_reconnect_req)
+		{
+			if(!(request_reconnect(last_server) && smb2fs_init(NULL)))
+				return -ENODEV;
+		}
+		else if(!smb2fs_init(NULL))
+			return -ENODEV;
+	}
+
+	if (fsd->rootdir != NULL)
+	{
+		strlcpy(pathbuf, fsd->rootdir, sizeof(pathbuf));
+		strlcat(pathbuf, path, sizeof(pathbuf));
+		path = pathbuf;
+	}
+
+	if (path[0] == '/') path++; /* Remove initial slash */
+
+	do {
+		rc = smb2_stat(fsd->smb2, path, &smb2_st);
+		if(rc < -1)
+		{
+			// KPrintF("[smb2fs_getattr] r2: %ld\n", rc);
+			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+			return rc;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+	smb2_bi.smb2_atime = smb2_st.smb2_atime;
+	smb2_bi.smb2_atime_nsec = smb2_st.smb2_atime_nsec;
+	smb2_bi.smb2_btime = smb2_st.smb2_btime;
+	smb2_bi.smb2_btime_nsec = smb2_st.smb2_btime_nsec;
+	smb2_bi.smb2_ctime = smb2_st.smb2_ctime;
+	smb2_bi.smb2_ctime_nsec = smb2_st.smb2_ctime_nsec;
+	smb2_bi.smb2_mtime = smb2_st.smb2_mtime;
+	smb2_bi.smb2_mtime_nsec = smb2_st.smb2_mtime_nsec;
+
+	smb2_bi.smb2_raw_file_attributes = smb2_st.smb2_raw_file_attributes;
+	uaefsdb_set_smb_modeattributes(protectionbits, &smb2_bi.smb2_raw_file_attributes);
+
+	// KPrintF("[smb2_setbasicattributes] smb2_raw_file_attributes input: %ld\n", smb2_st.smb2_raw_file_attributes);
+	// KPrintF("[smb2_setbasicattributes] smb2_raw_file_attributes: %ld\n", smb2_bi.smb2_raw_file_attributes);
+
+	
+	do {
+		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB2_LEN);
+		if(rc < -1)
+		{
+			uaefsdb_size = 0;
+			break;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+	if(uaefsdb_size != UAEFSDB_LEN && uaefsdb_size != UAEFSDB2_LEN)
+	{
+		uaefsdb_size = sizeof(uaefsdb_buffer);
+		memset(uaefsdb_buffer, 0, uaefsdb_size);
+	}
+
+	// KPrintF((STRPTR)"[smb2fs] uaefsdb_size:%ld\n", uaefsdb_size);
+	// KPrintF((STRPTR)"[smb2fs] smb2_raw_file_attributes:%ld\n", smb2_bi.smb2_raw_file_attributes);
+	uaefsdb_set_protection_bits(protectionbits & ((1 << 8)-1), smb2_bi.smb2_raw_file_attributes, uaefsdb_buffer, uaefsdb_size);
+	// KPrintF((STRPTR)"[smb2fs] uaefsdb buffer bits:%ld\n", *(uint_fast32_t*)(uaefsdb_buffer+1));
+
+	do {
+		uaefsdb_size = rc = smb2fs_write_uaefsdb(path, uaefsdb_buffer, UAEFSDB2_LEN);
+		if(rc < -1)
+		{
+			uaefsdb_size = 0;
+			break;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_write_uaefsdb rc:%ld\n", rc);
+	// KPrintF((STRPTR)"[smb2fs] Protection Bits written:%ld\n", protectionbits & ((1 << 8)-1));
+	// KPrintF((STRPTR)"[smb2fs] Protection Bits uncropped:%ld\n", protectionbits);
+	
+	do {
+		rc = smb2_setbasicattributes(fsd->smb2, path, &smb2_bi);
+		// KPrintF("[smb2_setbasicattributes] rc: %ld\n", rc);
+		if(rc < -1)
+		{
+			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+			return rc;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+	return 0;
+}
+
+static int smb2fs_getattr(const char *path, struct fbx_stat *stbuf)
+{
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_getattr started. Path:%s\n", path);
+	struct smb2_stat_64 smb2_st;
+	int                 rc;
+	char                pathbuf[MAXPATHLEN];
+	size_t				uaefsdb_size = 0;
+	u_int8_t			uaefsdb_buffer[UAEFSDB2_LEN];
+
+	if (fsd == NULL)
+	{
+		if(cfg_reconnect_req)
+		{
+			if(!(request_reconnect(last_server) && smb2fs_init(NULL)))
+				return -ENODEV;
+		}
+		else if(!smb2fs_init(NULL))
+			return -ENODEV;
+	}
+
+	if (fsd->rootdir != NULL)
+	{
+		strlcpy(pathbuf, fsd->rootdir, sizeof(pathbuf));
+		strlcat(pathbuf, path, sizeof(pathbuf));
+		path = pathbuf;
+	}
+
+	if (path[0] == '/') path++; /* Remove initial slash */
+
+	do {
+		rc = smb2_stat(fsd->smb2, path, &smb2_st);
+		if(rc < -1)
+		{
+			// KPrintF("[smb2fs_getattr] r2: %ld\n", rc);
+			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+			return rc;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+	do {
+		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB2_LEN);
+		if(rc < -1)
+		{
+			uaefsdb_size = 0;
+			break;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+	// KPrintF((STRPTR)"[smb2fs] Alternative Stream:%s\n",path);
+	// KPrintF((STRPTR)"[smb2fs] Alternative StreamSize:%ld\n",uaefsdb_size);
+
 	smb2fs_fillstat(stbuf, &smb2_st);
+	uint32_t pbits = uaefsdb_get_protection_bits(smb2_st.smb2_raw_file_attributes, uaefsdb_buffer, uaefsdb_size);
+	stbuf->st_mode |= pbits;
+
+	// KPrintF((STRPTR)"[smb2fs] Protection Bits read:%ld\n", pbits & ((1 << 8)-1));
+	// KPrintF((STRPTR)"[smb2fs] smb2_raw_file_attributes:%ld\n",smb2_st.smb2_raw_file_attributes);
+	// KPrintF((STRPTR)"[smb2fs] Protection Bits:%ld\n",stbuf->st_mode);
+
+	// KPrintF((STRPTR)"[smb2fs] SMB2 Attributes:%s\n",path); 
+	// KPrintF((STRPTR)"[smb2fs] SMB2 Attributes Readonly:%s\n", smb2_st.smb2_raw_file_attributes & SMB2_FILE_ATTRIBUTE_READONLY ? "Yes" : "No");
+	// KPrintF((STRPTR)"[smb2fs] SMB2 Attributes Hidden:%s\n", smb2_st.smb2_raw_file_attributes & SMB2_FILE_ATTRIBUTE_HIDDEN ? "Yes" : "No");
+	// KPrintF((STRPTR)"[smb2fs] SMB2 Attributes System:%s\n", smb2_st.smb2_raw_file_attributes & SMB2_FILE_ATTRIBUTE_SYSTEM ? "Yes" : "No");
+	// KPrintF((STRPTR)"[smb2fs] SMB2 Attributes Archive:%s\n", smb2_st.smb2_raw_file_attributes & SMB2_FILE_ATTRIBUTE_ARCHIVE ? "Yes" : "No");
+	// KPrintF((STRPTR)"[smb2fs] SMB2 Attributes Normal:%s\n", smb2_st.smb2_raw_file_attributes & SMB2_FILE_ATTRIBUTE_NORMAL ? "Yes" : "No");
 
 	return 0;
 }
@@ -535,10 +761,12 @@ static int smb2fs_getattr(const char *path, struct fbx_stat *stbuf)
 static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
                            struct fuse_file_info *fi)
 {
-	// KPrintF((STRPTR)"[smb2fs] smb2fs_fgetattr started.\n");
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_fgetattr started. Path:%s\n", path);
 	struct smb2fh      *smb2fh;
 	struct smb2_stat_64 smb2_st;
 	int                 rc;
+	size_t				uaefsdb_size = 0;
+	u_int8_t			uaefsdb_buffer[UAEFSDB_LEN];
 
 	if (fsd == NULL)
 	{
@@ -570,9 +798,119 @@ static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
 		}
 	} while(rc < 0);
 
+	if (path[0] == '/') path++; /* Remove initial slash */
+
+	do {
+		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB_LEN);
+		if(rc < -1)
+		{
+			uaefsdb_size = 0;
+			break;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+	// KPrintF((STRPTR)"[smb2fs] Alternative Stream:%s\n",path);
+	// KPrintF((STRPTR)"[smb2fs] Alternative StreamSize:%ld\n",uaefsdb_size);
+
 	smb2fs_fillstat(stbuf, &smb2_st);
+	stbuf->st_mode |= uaefsdb_get_protection_bits(smb2_st.smb2_raw_file_attributes, uaefsdb_buffer, uaefsdb_size);
+	// KPrintF((STRPTR)"[smb2fs] smb2_raw_file_attributes:%ld\n",smb2_st.smb2_raw_file_attributes);
+	// KPrintF((STRPTR)"[smb2fs] Protection Bits:%ld\n",stbuf->st_mode);
 
 	return 0;
+}
+
+// setting comments will be kind more work
+// Important is:
+// - Checking if an uaefsdb already exists (valid?) and keep structure
+// - if it does not exist it must be created with correct amigaprotbits and winmode to not corrupt attributes
+// - winmode must be retrieved first (before any write to not corrupt ARCHIVE flag)
+// - uaefsdb with comment must be written to Alternate Stream (which would remove an ARCHIVE flag if the file is not readonly)
+// - very last step is to write actual file attributes again (basic info)
+// THIS WILL WORK ON WINDOWS SHARES - the result on linux / samba shares is basically undefined (SIDE EFFECTS expected)
+
+// static int setxattr(const char *path, const char *attr, char* comment_buf, size_t len, int flags)
+// {
+// 	KPrintF((STRPTR)"[smb2fs] smb2fs_getxattr started. Path:%s\n", path);
+// 	int                 rc;
+// 	size_t				uaefsdb_size = 0;
+// 	u_int8_t			uaefsdb_buffer[UAEFSDB_LEN];
+
+// 	if (fsd == NULL)
+// 	{
+// 		if(cfg_reconnect_req)
+// 		{
+// 			if(!(request_reconnect(last_server) && smb2fs_init(NULL)))
+// 				return -ENODEV;
+// 		}
+// 		else if(!smb2fs_init(NULL))
+// 			return -ENODEV;
+// 	}
+
+// 	if(attr == NULL || !strcmp(attr, "user.amiga_comment"))
+// 		return -ENOSYS;
+
+// 	if (path[0] == '/') path++; /* Remove initial slash */
+
+// 	do {
+// 		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB_LEN);
+// 		if(rc < -1)
+// 		{
+// 			uaefsdb_size = 0;
+// 			break;
+// 		}
+// 		else if (rc < 0)
+// 		{
+// 			if(!handle_connection_fault())
+// 				return -ENODEV;
+// 		}
+// 	} while(rc < 0);
+
+// 	return uaefsdb_get_comment(uaefsdb_buffer , uaefsdb_size, comment_buf, len);
+// }
+
+static int smb2fs_getxattr(const char *path, const char *attr, char* comment_buf, size_t len)
+{
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_getxattr started. Path:%s\n", path);
+	int                 rc;
+	size_t				uaefsdb_size = 0;
+	u_int8_t			uaefsdb_buffer[UAEFSDB_LEN];
+
+	if (fsd == NULL)
+	{
+		if(cfg_reconnect_req)
+		{
+			if(!(request_reconnect(last_server) && smb2fs_init(NULL)))
+				return -ENODEV;
+		}
+		else if(!smb2fs_init(NULL))
+			return -ENODEV;
+	}
+
+	if(attr == NULL || !strcmp(attr, "user.amiga_comment"))
+		return -ENOSYS;
+
+	if (path[0] == '/') path++; /* Remove initial slash */
+
+	do {
+		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB_LEN);
+		if(rc < -1)
+		{
+			uaefsdb_size = 0;
+			break;
+		}
+		else if (rc < 0)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+	} while(rc < 0);
+
+	return uaefsdb_get_comment(uaefsdb_buffer , uaefsdb_size, comment_buf, len);
 }
 
 static int smb2fs_mkdir(const char *path, mode_t mode)
@@ -744,8 +1082,166 @@ static int smb2fs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler
 	return 0;
 }
 
+static int smb2fs_read_uaefsdb(const char *path, char *buffer, size_t size)
+{
+	int				rc, r2, result = 0;
+	size_t			aspath_len, max_read_size, count;
+	char 			*aspath;
+	struct smb2fh 	*smb2fh;
+	char 			*buffer_ref;
+
+	if(path == NULL)
+	{
+		return -EINVAL;
+	}
+
+	if(size != UAEFSDB_LEN && size != UAEFSDB2_LEN)
+	{
+		return -EINVAL;
+	}
+
+	aspath_len = strlen(path) + 16;
+	aspath = calloc(1, aspath_len);
+	if(aspath == NULL) {
+		return -ENOMEM;
+	}
+
+	// Is there something about UTF8 to consider?
+	snprintf(aspath, aspath_len, "%s:_UAEFSDB.___", path);
+	smb2fh = smb2_open(fsd->smb2, aspath, O_RDONLY, &r2);
+	free(aspath);
+
+	if(r2 == -1 || r2 == SMB2_STATUS_CANCELLED)
+	{
+		return -1;
+	}
+	else if(smb2fh == NULL)
+	{
+		return -ENOENT;
+	}
+
+	buffer_ref = buffer;
+
+	max_read_size = smb2_get_max_read_size(fsd->smb2);
+
+	while (size > 0)
+	{
+		count = size;
+		if (count > max_read_size)
+			count = max_read_size;
+
+		rc = smb2_read(fsd->smb2, smb2fh, (uint8_t *)buffer_ref, count);
+		if (rc == 0)
+		{
+			break;
+		}
+		else if(rc < -1)
+		{
+			smb2_close(fsd->smb2, smb2fh);
+			return rc;
+		}
+		else if(rc == -1)
+		{
+			return rc;
+		}
+
+		result += rc;
+		buffer_ref += rc;
+		size   -= rc;	
+	}
+
+	smb2_close(fsd->smb2, smb2fh);
+
+	if(result != UAEFSDB_LEN && result != UAEFSDB2_LEN)
+	{
+		return -ENOENT;
+	}
+
+	return result;
+}
+
+
+static int smb2fs_write_uaefsdb(const char *path, char *buffer, size_t size)
+{
+	int				rc, r2, result = 0;
+	size_t			aspath_len, max_write_size, count;
+	char 			*aspath;
+	struct smb2fh 	*smb2fh;
+	char 			*buffer_ref;
+
+	if(path == NULL)
+	{
+		return -EINVAL;
+	}
+
+	if(size != UAEFSDB_LEN && size != UAEFSDB2_LEN)
+	{
+		return -EINVAL;
+	}
+
+	aspath_len = strlen(path) + 16;
+	aspath = calloc(1, aspath_len);
+	if(aspath == NULL) {
+		return -ENOMEM;
+	}
+
+	// Is there something about UTF8 to consider?
+	snprintf(aspath, aspath_len, "%s:_UAEFSDB.___", path);
+	smb2fh = smb2_open(fsd->smb2, aspath, O_CREAT | O_TRUNC | O_RDWR, &r2);
+	free(aspath);
+
+	if(r2 == -1 || r2 == SMB2_STATUS_CANCELLED)
+	{
+		return -1;
+	}
+	else if(smb2fh == NULL)
+	{
+		return -ENOENT;
+	}
+
+	buffer_ref = buffer;
+
+	max_write_size = smb2_get_max_write_size(fsd->smb2);
+
+	while (size > 0)
+	{
+		count = size;
+		if (count > max_write_size)
+			count = max_write_size;
+
+		rc = smb2_write(fsd->smb2, smb2fh, (uint8_t *)buffer_ref, count);
+		if (rc == 0)
+		{
+			break;
+		}
+		else if(rc < -1)
+		{
+			smb2_close(fsd->smb2, smb2fh);
+			return rc;
+		}
+		else if(rc == -1)
+		{
+			return rc;
+		}
+
+		result += rc;
+		buffer_ref += rc;
+		size   -= rc;	
+	}
+
+	smb2_close(fsd->smb2, smb2fh);
+
+	if(result != UAEFSDB_LEN && result != UAEFSDB2_LEN)
+	{
+		return -ENOENT;
+	}
+
+	return result;
+}
+
 static int smb2fs_open(const char *path, struct fuse_file_info *fi)
 {
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_open started. Path:%s\n", path);
 	// KPrintF((STRPTR)"[smb2fs] smb2fs_open started.\n");
 	struct smb2fh *smb2fh;
 	int            flags;
@@ -792,6 +1288,8 @@ static int smb2fs_open(const char *path, struct fuse_file_info *fi)
 		{
 			// fi->fh = (uint64_t)(size_t)smb2fh;
 			fi->fh = AllocateHandleForPointer(fsd->phr, smb2fh);
+			// KPrintF((STRPTR)"[smb2fs] smb2fs_create Filepointer:%ld\n", smb2fh);
+			// KPrintF((STRPTR)"[smb2fs] smb2fs_create Filehandle:%ld\n", (uint32_t)fi->fh);
 			if (fi->fh == 0)
 			{
 				return -ENOMEM;
@@ -813,7 +1311,7 @@ static int smb2fs_open(const char *path, struct fuse_file_info *fi)
 
 static int smb2fs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	// KPrintF((STRPTR)"[smb2fs] smb2fs_create started.\n");
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_create started. Path:%s\n", path);
 	struct smb2fh *smb2fh;
 	int            flags;
 	char           pathbuf[MAXPATHLEN];
@@ -858,6 +1356,8 @@ static int smb2fs_create(const char *path, mode_t mode, struct fuse_file_info *f
 	{
 		// fi->fh = (uint64_t)(size_t)smb2fh;
 		fi->fh = AllocateHandleForPointer(fsd->phr, smb2fh);
+		// KPrintF((STRPTR)"[smb2fs] smb2fs_create Filepointer:%ld\n", smb2fh);
+		// KPrintF((STRPTR)"[smb2fs] smb2fs_create Filehandle:%ld\n", (uint32_t)fi->fh);
 		if (fi->fh == 0)
 		{
 			return -ENOMEM;
@@ -870,7 +1370,7 @@ static int smb2fs_create(const char *path, mode_t mode, struct fuse_file_info *f
 
 static int smb2fs_release(const char *path, struct fuse_file_info *fi)
 {
-	// KPrintF((STRPTR)"[smb2fs] smb2fs_release started.\n");
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_release started. Path:%s\n", path);
 	struct smb2fh *smb2fh;
 
 	if (fsd == NULL)
@@ -1187,7 +1687,7 @@ static int smb2fs_ftruncate(const char *path, fbx_off_t size, struct fuse_file_i
 
 static int smb2fs_unlink(const char *path)
 {
-	// KPrintF((STRPTR)"[smb2fs] smb2fs_unlink started.\n");
+	// KPrintF((STRPTR)"[smb2fs] smb2fs_unlink started. Path:%s\n", path);
 	int  rc;
 	char pathbuf[MAXPATHLEN];
 
@@ -1432,7 +1932,10 @@ static struct fuse_operations smb2fs_ops =
 	.rmdir      = smb2fs_rmdir,
 	.readlink   = smb2fs_readlink,
 	.rename     = smb2fs_rename,
-	.relabel    = smb2fs_relabel
+	.relabel    = smb2fs_relabel,
+	.getxattr	= smb2fs_getxattr,
+	.chmod		= smb2fs_chmod,
+	.utimens	= smb2fs_utimens
 };
 
 static void remove_double_quotes(char *argstr)
@@ -1573,7 +2076,7 @@ int smb2fs_main(struct DosPacket *pkt)
 		TAG_END);
 #else
 	struct TagItem fs_tags[] = {
-		{ FBXT_FSFLAGS,     FBXF_ENABLE_UTF8_NAMES|FBXF_USE_FILL_DIR_STAT },
+		{ FBXT_FSFLAGS,     FBXF_ENABLE_UTF8_NAMES|FBXF_USE_FILL_DIR_STAT|FBXF_MODE_IS_AMIGA_PROT },
 		{ FBXT_DOSTYPE,     ID_SMB2_DISK                                            },
 		{ FBXT_GET_CONTEXT, (IPTR)&_fuse_context_                                   },
 		{ TAG_END,          0                                                       }

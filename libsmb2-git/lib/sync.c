@@ -731,6 +731,37 @@ int smb2_statvfs(struct smb2_context *smb2, const char *path,
 	return rc;
 }
 
+int smb2_setbasicattributes(struct smb2_context *smb2, const char *path,
+                  struct smb2_basic_info *binfo)
+{
+        struct sync_cb_data *cb_data;
+        int rc = 0;
+
+        cb_data = calloc(1, sizeof(struct sync_cb_data));
+        if (cb_data == NULL) {
+                smb2_set_error(smb2, "Failed to allocate sync_cb_data");
+                return -ENOMEM;
+        }
+
+	rc = smb2_setbasicattributes_async(smb2, path, binfo,
+                                 generic_status_cb, cb_data);
+        if (rc < 0) {
+                goto out;
+	}
+
+	rc = wait_for_reply(smb2, cb_data);
+        if (rc < 0) {
+                cb_data->status = SMB2_STATUS_CANCELLED;
+                return rc;
+	}
+
+        rc = cb_data->status;
+ out:
+        free(cb_data);
+
+	return rc;
+}
+
 int smb2_truncate(struct smb2_context *smb2, const char *path,
                   uint64_t length)
 {

@@ -19,6 +19,11 @@
  * distribution in the file COPYING); if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+
+#ifndef __amigaos4__
+#include <clib/debug_protos.h>
+#endif
+
 #include <debuglib.h>
 #include "marshalling.h"
 
@@ -91,13 +96,18 @@ uint32_t AllocateHandleForPointer(struct PointerHandleRegistry* registry, void* 
         registry->size++;
     }
 
+    KPrintF("Marshalling incarnation:%ld\n", registry->incarnation);
+    KPrintF("Marshalling (registry->incarnation << INDEX_BITS):%ld\n", (registry->incarnation << INDEX_BITS));
+    KPrintF("Marshalling index:%ld\n", index);
+
     return (registry->incarnation << INDEX_BITS) | (uint32_t)(index);
 }
 
 void RemoveHandle(struct PointerHandleRegistry* registry, uint32_t handle) {
     uint32_t index = handle & MAX_INDEX;
+    uint32_t incarnation = handle >> INDEX_BITS;
 
-    if (index < registry->size && registry->pointers[index] != NULL) {
+    if (incarnation == registry->incarnation && index < registry->size && registry->pointers[index] != NULL) {
         // set pointer entry to NULL
         registry->pointers[index] = NULL;
 

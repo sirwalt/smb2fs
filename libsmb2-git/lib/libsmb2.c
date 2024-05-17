@@ -1818,6 +1818,7 @@ fstat_cb_1(struct smb2_context *smb2, int status,
         st->smb2_btime      = fs->basic.creation_time.tv_sec;
         st->smb2_btime_nsec = fs->basic.creation_time.tv_usec *
                 1000;
+        st->smb2_raw_file_attributes = fs->basic.file_attributes;
 
         smb2_free_data(smb2, fs);
 
@@ -1927,6 +1928,7 @@ getinfo_cb_2(struct smb2_context *smb2, int status,
                 st->smb2_btime      = fs->basic.creation_time.tv_sec;
                 st->smb2_btime_nsec = fs->basic.creation_time.tv_usec *
                         1000;
+                st->smb2_raw_file_attributes = fs->basic.file_attributes;
         } else if (stat_data->info_type == SMB2_0_INFO_FILESYSTEM &&
                    stat_data->file_info_class == SMB2_FILE_FS_FULL_SIZE_INFORMATION) {
                 struct smb2_statvfs *statvfs = stat_data->st;
@@ -2178,6 +2180,143 @@ smb2_truncate_async(struct smb2_context *smb2, const char *path,
         if (next_pdu == NULL) {
                 trunc_data->cb(smb2, -ENOMEM, NULL, trunc_data->cb_data);
                 free(trunc_data);
+                smb2_free_pdu(smb2, pdu);
+                return -EINVAL;
+        }
+        smb2_add_compound_pdu(smb2, pdu, next_pdu);
+
+        smb2_queue_pdu(smb2, pdu);
+
+        return 0;
+}
+
+struct setbasicattributes_cb_data {
+        smb2_command_cb cb;
+        void *cb_data;
+
+        uint32_t status;
+};
+
+static void
+setbasicattributes_cb_3(struct smb2_context *smb2, int status,
+           void *command_data _U_, void *private_data)
+{
+        struct setbasicattributes_cb_data *setbasicattributes_data = private_data;
+
+        if (setbasicattributes_data->status == SMB2_STATUS_SUCCESS) {
+                setbasicattributes_data->status = status;
+        }
+
+        setbasicattributes_data->cb(smb2, -nterror_to_errno(setbasicattributes_data->status),
+                       NULL, setbasicattributes_data->cb_data);
+        free(setbasicattributes_data);
+}
+
+static void
+setbasicattributes_cb_2(struct smb2_context *smb2, int status,
+           void *command_data, void *private_data)
+{
+        struct setbasicattributes_cb_data *setbasicattributes_data = private_data;
+
+        if (setbasicattributes_data->status == SMB2_STATUS_SUCCESS) {
+                setbasicattributes_data->status = status;
+        }
+}
+
+static void
+setbasicattributes_cb_1(struct smb2_context *smb2, int status,
+           void *command_data _U_, void *private_data)
+{
+        struct setbasicattributes_cb_data *setbasicattributes_data = private_data;
+
+        if (setbasicattributes_data->status == SMB2_STATUS_SUCCESS) {
+                setbasicattributes_data->status = status;
+        }
+}
+
+int
+smb2_setbasicattributes_async(struct smb2_context *smb2, const char *path,
+                    struct smb2_basic_info *binfo, smb2_command_cb cb, void *cb_data)
+{
+        struct setbasicattributes_cb_data *setbasicattributes_data;
+        struct smb2_create_request cr_req;
+        struct smb2_set_info_request si_req;
+        struct smb2_close_request cl_req;
+        struct smb2_pdu *pdu, *next_pdu;
+        struct smb2_file_basic_info basicinfo _U_;
+
+        if (smb2 == NULL) {
+                return -EINVAL;
+        }
+
+        setbasicattributes_data = calloc(1, sizeof(struct setbasicattributes_cb_data));
+        if (setbasicattributes_data == NULL) {
+                smb2_set_error(smb2, "Failed to allocate setbasicattributes_data");
+                return -ENOMEM;
+        }
+
+        setbasicattributes_data->cb = cb;
+        setbasicattributes_data->cb_data = cb_data;
+
+        /* CREATE command */
+        memset(&cr_req, 0, sizeof(struct smb2_create_request));
+        cr_req.requested_oplock_level = SMB2_OPLOCK_LEVEL_NONE;
+        cr_req.impersonation_level = SMB2_IMPERSONATION_IMPERSONATION;
+        cr_req.desired_access = SMB2_FILE_WRITE_ATTRIBUTES;
+        cr_req.file_attributes = 0;
+        cr_req.share_access = SMB2_FILE_SHARE_READ | SMB2_FILE_SHARE_WRITE;
+        cr_req.create_disposition = SMB2_FILE_OPEN;
+        cr_req.create_options = 0;
+        cr_req.name = path;
+
+        pdu = smb2_cmd_create_async(smb2, &cr_req, setbasicattributes_cb_1, setbasicattributes_data);
+        if (pdu == NULL) {
+                smb2_set_error(smb2, "Failed to create create command");
+                free(setbasicattributes_data);
+                return -EINVAL;
+        }
+
+        /* SET INFO command */
+        basicinfo.file_attributes = binfo->smb2_raw_file_attributes;
+        basicinfo.last_access_time.tv_sec = binfo->smb2_atime;
+        basicinfo.last_access_time.tv_usec = binfo->smb2_atime_nsec / 1000;
+
+        basicinfo.last_write_time.tv_sec = binfo->smb2_mtime;
+        basicinfo.last_write_time.tv_usec = binfo->smb2_mtime_nsec / 1000;
+
+        basicinfo.change_time.tv_sec = binfo->smb2_ctime;
+        basicinfo.change_time.tv_usec = binfo->smb2_ctime_nsec / 1000;
+
+        basicinfo.creation_time.tv_sec = binfo->smb2_btime;
+        basicinfo.creation_time.tv_usec = binfo->smb2_btime_nsec / 1000;
+
+        memset(&si_req, 0, sizeof(struct smb2_set_info_request));
+        si_req.info_type = SMB2_0_INFO_FILE;
+        si_req.file_info_class = SMB2_FILE_BASIC_INFORMATION;
+        si_req.additional_information = 0;
+        memcpy(si_req.file_id, compound_file_id, SMB2_FD_SIZE);
+        si_req.input_data = &basicinfo;
+
+        next_pdu = smb2_cmd_set_info_async(smb2, &si_req,
+                                           setbasicattributes_cb_2, setbasicattributes_data);
+        if (next_pdu == NULL) {
+                smb2_set_error(smb2, "Failed to create set command. %s",
+                               smb2_get_error(smb2));
+                free(setbasicattributes_data);
+                smb2_free_pdu(smb2, pdu);
+                return -EINVAL;
+        }
+        smb2_add_compound_pdu(smb2, pdu, next_pdu);
+
+        /* CLOSE command */
+        memset(&cl_req, 0, sizeof(struct smb2_close_request));
+        cl_req.flags = SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB;
+        memcpy(cl_req.file_id, compound_file_id, SMB2_FD_SIZE);
+
+        next_pdu = smb2_cmd_close_async(smb2, &cl_req, setbasicattributes_cb_3, setbasicattributes_data);
+        if (next_pdu == NULL) {
+                setbasicattributes_data->cb(smb2, -ENOMEM, NULL, setbasicattributes_data->cb_data);
+                free(setbasicattributes_data);
                 smb2_free_pdu(smb2, pdu);
                 return -EINVAL;
         }

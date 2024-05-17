@@ -55,6 +55,25 @@ struct smb2_stat_64 {
         uint64_t smb2_ctime_nsec;
     uint64_t smb2_btime;
     uint64_t smb2_btime_nsec;
+
+    
+        /*
+        * The raw file attributes as returned by the server.
+        * Those should be provided to the library user for sake of completenss.
+        */
+    uint32_t smb2_raw_file_attributes;
+};
+
+struct smb2_basic_info {
+        uint64_t smb2_atime;
+        uint64_t smb2_atime_nsec;
+        uint64_t smb2_mtime;
+        uint64_t smb2_mtime_nsec;
+        uint64_t smb2_ctime;
+        uint64_t smb2_ctime_nsec;
+        uint64_t smb2_btime;
+        uint64_t smb2_btime_nsec;
+        uint32_t smb2_raw_file_attributes;
 };
 
 struct smb2_statvfs {
@@ -911,6 +930,33 @@ int smb2_rename_async(struct smb2_context *smb2, const char *oldpath,
  */
 int smb2_rename(struct smb2_context *smb2, const char *oldpath,
               const char *newpath);
+
+/*
+ * Async set basic attributes
+ *
+ * Returns
+ *  0     : The operation was initiated. Result of the operation will be
+ *          reported through the callback function.
+ * -errno : There was an error. The callback function will not be invoked.
+ *
+ * When the callback is invoked, status indicates the result:
+ *      0 : Success.
+ * -errno : An error occurred.
+ */
+int smb2_setbasicattributes_async(struct smb2_context *smb2, const char *path,
+                                  struct smb2_basic_info *binfo, smb2_command_cb cb, void *cb_data);
+
+
+/*
+ * Sync set basic attributes
+ * 
+ * Function returns
+ *      0 : Success
+ * -errno : An error occurred.
+ */
+int smb2_setbasicattributes(struct smb2_context *smb2, const char *path,
+                            struct smb2_basic_info *binfo);
+
 
 /*
  * Async truncate()
