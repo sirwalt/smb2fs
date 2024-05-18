@@ -96,9 +96,9 @@ uint32_t AllocateHandleForPointer(struct PointerHandleRegistry* registry, void* 
         registry->size++;
     }
 
-    KPrintF("Marshalling incarnation:%ld\n", registry->incarnation);
-    KPrintF("Marshalling (registry->incarnation << INDEX_BITS):%ld\n", (registry->incarnation << INDEX_BITS));
-    KPrintF("Marshalling index:%ld\n", index);
+    // KPrintF("Marshalling incarnation:%ld\n", registry->incarnation);
+    // KPrintF("Marshalling (registry->incarnation << INDEX_BITS):%ld\n", (registry->incarnation << INDEX_BITS));
+    // KPrintF("Marshalling index:%ld\n", index);
 
     return (registry->incarnation << INDEX_BITS) | (uint32_t)(index);
 }
