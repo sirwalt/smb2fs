@@ -55,6 +55,10 @@
 #include <time.h>
 #endif
 
+#ifndef __amigaos4__
+#include <clib/debug_protos.h>
+#endif
+
 #include "smb2.h"
 #include "libsmb2.h"
 #include "libsmb2-raw.h"
@@ -201,12 +205,14 @@ static void opendir_cb(struct smb2_context *smb2, int status,
 
         cb_data->is_finished = 1;
         cb_data->ptr = command_data;
+        cb_data->status = status;
 }
 
 struct smb2dir *smb2_opendir(struct smb2_context *smb2, const char *path, int *r2)
 {
         struct sync_cb_data *cb_data;
         void *ptr;
+        int rc;
 
         cb_data = calloc(1, sizeof(struct sync_cb_data));
         if (cb_data == NULL) {
@@ -223,7 +229,8 @@ struct smb2dir *smb2_opendir(struct smb2_context *smb2, const char *path, int *r
 		return NULL;
 	}
 
-	if (wait_for_reply(smb2, cb_data) < 0) {
+        rc = wait_for_reply(smb2, cb_data);
+	if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
                 *r2 = cb_data->status;
                 return NULL;
@@ -250,12 +257,15 @@ static void open_cb(struct smb2_context *smb2, int status,
 
         cb_data->is_finished = 1;
         cb_data->ptr = command_data;
+        cb_data->status = status;
+        KPrintF("[open_cb] status:%ld\n", status);
 }
 
 struct smb2fh *smb2_open(struct smb2_context *smb2, const char *path, int flags, int *r2)
 {
         struct sync_cb_data *cb_data;
         void *ptr;
+        int rc;
 
         cb_data = calloc(1, sizeof(struct sync_cb_data));
         if (cb_data == NULL) {
@@ -272,7 +282,9 @@ struct smb2fh *smb2_open(struct smb2_context *smb2, const char *path, int flags,
 		return NULL;
 	}
 
-	if (wait_for_reply(smb2, cb_data) < 0) {
+        rc = wait_for_reply(smb2, cb_data);
+        KPrintF("[smb2_open] RC:%ld\n", rc);
+	if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
                 *r2 = cb_data->status;
                 return NULL;
@@ -320,7 +332,7 @@ int smb2_close(struct smb2_context *smb2, struct smb2fh *fh)
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                goto out;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -366,7 +378,7 @@ int smb2_fsync(struct smb2_context *smb2, struct smb2fh *fh)
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -391,6 +403,7 @@ static void generic_status_cb(struct smb2_context *smb2, int status,
 
         cb_data->is_finished = 1;
         cb_data->status = status;
+        KPrintF("[generic_status_cb] status:%ld\n", status);
 }
 
 int smb2_pread(struct smb2_context *smb2, struct smb2fh *fh,
@@ -414,7 +427,7 @@ int smb2_pread(struct smb2_context *smb2, struct smb2fh *fh,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -445,7 +458,7 @@ int smb2_pwrite(struct smb2_context *smb2, struct smb2fh *fh,
         rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -476,7 +489,7 @@ int smb2_read(struct smb2_context *smb2, struct smb2fh *fh,
         rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -507,7 +520,7 @@ int smb2_write(struct smb2_context *smb2, struct smb2fh *fh,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -536,14 +549,17 @@ int smb2_unlink(struct smb2_context *smb2, const char *path)
 
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
+                KPrintF("[smb2_unlink] wait failed. RC:%ld\n", rc);
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
+        KPrintF("[smb2_unlink] status:%ld\n", rc);
  out:
         free(cb_data);
 
+        KPrintF("[smb2_unlink] RC:%ld\n", rc);
 	return rc;
 }
 
@@ -567,7 +583,7 @@ int smb2_rmdir(struct smb2_context *smb2, const char *path)
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -597,7 +613,7 @@ int smb2_mkdir(struct smb2_context *smb2, const char *path)
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -628,7 +644,7 @@ int smb2_fstat(struct smb2_context *smb2, struct smb2fh *fh,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -659,7 +675,7 @@ int smb2_stat(struct smb2_context *smb2, const char *path,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -690,7 +706,7 @@ int smb2_rename(struct smb2_context *smb2, const char *oldpath,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -721,7 +737,7 @@ int smb2_statvfs(struct smb2_context *smb2, const char *path,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -752,7 +768,7 @@ int smb2_setbasicattributes(struct smb2_context *smb2, const char *path,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -783,7 +799,7 @@ int smb2_truncate(struct smb2_context *smb2, const char *path,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -814,7 +830,7 @@ int smb2_ftruncate(struct smb2_context *smb2, struct smb2fh *fh,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -871,7 +887,7 @@ int smb2_readlink(struct smb2_context *smb2, const char *path,
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;
@@ -922,7 +938,7 @@ int smb2_echo(struct smb2_context *smb2)
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
-                return rc;
+                return cb_data->status;
 	}
 
         rc = cb_data->status;

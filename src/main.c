@@ -412,16 +412,16 @@ static int smb2fs_statfs(const char *path, struct statvfs *sfs)
 
 	do {
 		rc = smb2_statvfs(fsd->smb2, path, &smb2_sfs);
-		if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+		else if(rc < 0)
 		{
 			// KPrintF("[smb2fs_statfs] r2: %ld\n", rc);
 			// KPrintF("[smb2fs_statfs] r2_text: %s\n", nterror_to_str(rc));
 			return rc;
-		}
-		else if (rc < 0)
-		{
-			if(!handle_connection_fault())
-				return -ENODEV;
 		}
 	} while(rc < 0);
 
@@ -518,16 +518,16 @@ static int smb2fs_utimens(const char *path, const struct timespec *ts) {
 
 	do {
 		rc = smb2_stat(fsd->smb2, path, &smb2_st);
-		if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+		else if(rc < 0)
 		{
 			// KPrintF("[smb2fs_getattr] r2: %ld\n", rc);
 			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
 			return rc;
-		}
-		else if (rc < 0)
-		{
-			if(!handle_connection_fault())
-				return -ENODEV;
 		}
 	} while(rc < 0);
 
@@ -544,15 +544,15 @@ static int smb2fs_utimens(const char *path, const struct timespec *ts) {
 
 	do {
 		rc = smb2_setbasicattributes(fsd->smb2, path, &smb2_bi);
-		if(rc < -1)
-		{
-			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -590,16 +590,16 @@ static int smb2fs_chmod(const char *path, uint32_t protectionbits)
 
 	do {
 		rc = smb2_stat(fsd->smb2, path, &smb2_st);
-		if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+		else if(rc < 0)
 		{
 			// KPrintF("[smb2fs_getattr] r2: %ld\n", rc);
 			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
 			return rc;
-		}
-		else if (rc < 0)
-		{
-			if(!handle_connection_fault())
-				return -ENODEV;
 		}
 	} while(rc < 0);
 
@@ -621,15 +621,15 @@ static int smb2fs_chmod(const char *path, uint32_t protectionbits)
 	
 	do {
 		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB2_LEN);
-		if(rc < -1)
-		{
-			uaefsdb_size = 0;
-			break;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			uaefsdb_size = 0;
+			break;
 		}
 	} while(rc < 0);
 
@@ -646,15 +646,15 @@ static int smb2fs_chmod(const char *path, uint32_t protectionbits)
 
 	do {
 		uaefsdb_size = rc = smb2fs_write_uaefsdb(path, uaefsdb_buffer, UAEFSDB2_LEN);
-		if(rc < -1)
-		{
-			uaefsdb_size = 0;
-			break;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			uaefsdb_size = 0;
+			break;
 		}
 	} while(rc < 0);
 
@@ -665,15 +665,15 @@ static int smb2fs_chmod(const char *path, uint32_t protectionbits)
 	do {
 		rc = smb2_setbasicattributes(fsd->smb2, path, &smb2_bi);
 		// KPrintF("[smb2_setbasicattributes] rc: %ld\n", rc);
-		if(rc < -1)
-		{
-			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -711,30 +711,30 @@ static int smb2fs_getattr(const char *path, struct fbx_stat *stbuf)
 
 	do {
 		rc = smb2_stat(fsd->smb2, path, &smb2_st);
-		if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+		else if(rc < 0)
 		{
 			// KPrintF("[smb2fs_getattr] r2: %ld\n", rc);
 			// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
 			return rc;
 		}
-		else if (rc < 0)
-		{
-			if(!handle_connection_fault())
-				return -ENODEV;
-		}
 	} while(rc < 0);
 
 	do {
 		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB2_LEN);
-		if(rc < -1)
-		{
-			uaefsdb_size = 0;
-			break;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			uaefsdb_size = 0;
+			break;
 		}
 	} while(rc < 0);
 	// KPrintF((STRPTR)"[smb2fs] Alternative Stream:%s\n",path);
@@ -785,16 +785,16 @@ static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
 			return -EINVAL;
 
 		rc = smb2_fstat(fsd->smb2, smb2fh, &smb2_st);
-		if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
+		{
+			if(!handle_connection_fault())
+				return -ENODEV;
+		}
+		else if(rc < 0)
 		{
 			// KPrintF("[smb2fs_fgetattr] r2: %ld\n", rc);
 			// KPrintF("[smb2fs_fgetattr] r2_text: %s\n", nterror_to_str(rc));
 			return rc;
-		}
-		else if (rc < 0)
-		{
-			if(!handle_connection_fault())
-				return -ENODEV;
 		}
 	} while(rc < 0);
 
@@ -802,15 +802,15 @@ static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
 
 	do {
 		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB_LEN);
-		if(rc < -1)
-		{
-			uaefsdb_size = 0;
-			break;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			uaefsdb_size = 0;
+			break;
 		}
 	} while(rc < 0);
 	// KPrintF((STRPTR)"[smb2fs] Alternative Stream:%s\n",path);
@@ -858,15 +858,15 @@ static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
 
 // 	do {
 // 		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB_LEN);
-// 		if(rc < -1)
+// 		if (rc == SMB2_STATUS_CANCELLED)
+		// {
+		// 	if(!handle_connection_fault())
+		// 		return -ENODEV;
+		// }
+		// else if(rc < 0)
 // 		{
 // 			uaefsdb_size = 0;
 // 			break;
-// 		}
-// 		else if (rc < 0)
-// 		{
-// 			if(!handle_connection_fault())
-// 				return -ENODEV;
 // 		}
 // 	} while(rc < 0);
 
@@ -898,15 +898,15 @@ static int smb2fs_getxattr(const char *path, const char *attr, char* comment_buf
 
 	do {
 		uaefsdb_size = rc = smb2fs_read_uaefsdb(path, uaefsdb_buffer, UAEFSDB_LEN);
-		if(rc < -1)
-		{
-			uaefsdb_size = 0;
-			break;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			uaefsdb_size = 0;
+			break;
 		}
 	} while(rc < 0);
 
@@ -944,14 +944,14 @@ static int smb2fs_mkdir(const char *path, mode_t mode)
 
 	do {
 		rc = smb2_mkdir(fsd->smb2, path);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -989,7 +989,7 @@ static int smb2fs_opendir(const char *path, struct fuse_file_info *fi)
 		smb2dir = smb2_opendir(fsd->smb2, path, &r2);
 		if (smb2dir == NULL)
 		{
-			if(r2 == -1 || r2 == SMB2_STATUS_CANCELLED)
+			if (r2 == SMB2_STATUS_CANCELLED)
 			{
 				if(!handle_connection_fault())
 					return -ENODEV;
@@ -1135,13 +1135,13 @@ static int smb2fs_read_uaefsdb(const char *path, char *buffer, size_t size)
 		{
 			break;
 		}
-		else if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
-			smb2_close(fsd->smb2, smb2fh);
 			return rc;
 		}
-		else if(rc == -1)
+		else if(rc < 0)
 		{
+			smb2_close(fsd->smb2, smb2fh);
 			return rc;
 		}
 
@@ -1214,13 +1214,13 @@ static int smb2fs_write_uaefsdb(const char *path, char *buffer, size_t size)
 		{
 			break;
 		}
-		else if(rc < -1)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
-			smb2_close(fsd->smb2, smb2fh);
 			return rc;
 		}
-		else if(rc == -1)
+		else if(rc < 0)
 		{
+			smb2_close(fsd->smb2, smb2fh);
 			return rc;
 		}
 
@@ -1275,12 +1275,12 @@ static int smb2fs_open(const char *path, struct fuse_file_info *fi)
 		do 
 		{
 			smb2fh = smb2_open(fsd->smb2, path, flags, &r2);
-			if(r2 == -1 || r2 == SMB2_STATUS_CANCELLED)
+			if(r2 == SMB2_STATUS_CANCELLED)
 			{
 				if(!handle_connection_fault())
 					return -ENODEV;
 			}
-		} while (r2 == -1 || r2 == SMB2_STATUS_CANCELLED);
+		} while (r2 == SMB2_STATUS_CANCELLED);
 
 		// KPrintF("[smb2_open] r2: %ld\n", r2);
 		// KPrintF("[smb2_open] r2_text: %s\n", nterror_to_str(r2));
@@ -1345,12 +1345,12 @@ static int smb2fs_create(const char *path, mode_t mode, struct fuse_file_info *f
 	do 
 	{
 		smb2fh = smb2_open(fsd->smb2, path, flags, &r2);
-		if(r2 == -1 || r2 == SMB2_STATUS_CANCELLED)
+		if(r2 == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
 		}
-	} while (r2 == -1 || r2 == SMB2_STATUS_CANCELLED);
+	} while (r2 == SMB2_STATUS_CANCELLED);
 
 	if (smb2fh != NULL)
 	{
@@ -1457,11 +1457,7 @@ static int smb2fs_read(const char *path, char *buffer, size_t size,
 			{
 				break;
 			}
-			else if(rc < -1)
-			{
-				return rc;
-			}
-			else if (rc < 0)
+			if (rc == SMB2_STATUS_CANCELLED)
 			{
 				if(!handle_connection_fault())
 					return -ENODEV;
@@ -1477,6 +1473,10 @@ static int smb2fs_read(const char *path, char *buffer, size_t size,
 					/* even if connection has reestablished, we do not have a handle recovery for now and need to fail the op */
 					return -EIO;
 				}
+			}
+			else if(rc < 0)
+			{
+				return rc;
 			}
 
 			result += rc;
@@ -1548,11 +1548,7 @@ static int smb2fs_write(const char *path, const char *buffer, size_t size,
 			{
 				break;
 			}
-			else if(rc < -1)
-			{
-				return rc;
-			}
-			else if (rc < 0)
+			if (rc == SMB2_STATUS_CANCELLED)
 			{
 				if(!handle_connection_fault())
 					return -ENODEV;
@@ -1568,6 +1564,10 @@ static int smb2fs_write(const char *path, const char *buffer, size_t size,
 					/* even if connection has reestablished, we do not have a handle recovery for now and need to fail the op */
 					return -EIO;
 				}
+			}
+			else if(rc < 0)
+			{
+				return rc;
 			}
 
 			result += rc;
@@ -1610,14 +1610,14 @@ static int smb2fs_truncate(const char *path, fbx_off_t size)
 
 	do {
 		rc = smb2_truncate(fsd->smb2, path, size);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -1659,11 +1659,7 @@ static int smb2fs_ftruncate(const char *path, fbx_off_t size, struct fuse_file_i
 			return -EINVAL;
 
 		rc = smb2_ftruncate(fsd->smb2, smb2fh, size);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
@@ -1679,6 +1675,10 @@ static int smb2fs_ftruncate(const char *path, fbx_off_t size, struct fuse_file_i
 				/* even if connection has reestablished, we do not have a handle recovery for now and need to fail the op */
 				return -EIO;
 			}
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -1716,14 +1716,14 @@ static int smb2fs_unlink(const char *path)
 
 	do {
 		rc = smb2_unlink(fsd->smb2, path);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -1769,7 +1769,7 @@ static int smb2fs_rmdir(const char *path)
 		smb2dir = smb2_opendir(fsd->smb2, path, &r2);
 		if (smb2dir == NULL)
 		{
-			if(r2 == -1 || r2 == SMB2_STATUS_CANCELLED)
+			if(r2 == SMB2_STATUS_CANCELLED)
 			{
 				if(!handle_connection_fault())
 					return -ENODEV;
@@ -1797,14 +1797,14 @@ static int smb2fs_rmdir(const char *path)
 
 	do {
 		rc = smb2_rmdir(fsd->smb2, path);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -1839,14 +1839,14 @@ static int smb2fs_readlink(const char *path, char *buffer, size_t size)
 
 	do {
 		rc = smb2_readlink(fsd->smb2, path, buffer, size);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
@@ -1889,14 +1889,14 @@ static int smb2fs_rename(const char *srcpath, const char *dstpath)
 
 	do {
 		rc = smb2_rename(fsd->smb2, srcpath, dstpath);
-		if(rc < -1)
-		{
-			return rc;
-		}
-		else if (rc < 0)
+		if (rc == SMB2_STATUS_CANCELLED)
 		{
 			if(!handle_connection_fault())
 				return -ENODEV;
+		}
+		else if(rc < 0)
+		{
+			return rc;
 		}
 	} while(rc < 0);
 
