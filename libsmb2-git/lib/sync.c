@@ -258,7 +258,7 @@ static void open_cb(struct smb2_context *smb2, int status,
         cb_data->is_finished = 1;
         cb_data->ptr = command_data;
         cb_data->status = status;
-        KPrintF("[open_cb] status:%ld\n", status);
+        // KPrintF("[open_cb] status:%ld\n", status);
 }
 
 struct smb2fh *smb2_open(struct smb2_context *smb2, const char *path, int flags, int *r2)
@@ -283,7 +283,7 @@ struct smb2fh *smb2_open(struct smb2_context *smb2, const char *path, int flags,
 	}
 
         rc = wait_for_reply(smb2, cb_data);
-        KPrintF("[smb2_open] RC:%ld\n", rc);
+        // KPrintF("[smb2_open] RC:%ld\n", rc);
 	if (rc < 0) {
                 cb_data->status = SMB2_STATUS_CANCELLED;
                 *r2 = cb_data->status;
@@ -403,7 +403,7 @@ static void generic_status_cb(struct smb2_context *smb2, int status,
 
         cb_data->is_finished = 1;
         cb_data->status = status;
-        KPrintF("[generic_status_cb] status:%ld\n", status);
+        // KPrintF("[generic_status_cb] status:%ld\n", status);
 }
 
 int smb2_pread(struct smb2_context *smb2, struct smb2fh *fh,
@@ -549,17 +549,17 @@ int smb2_unlink(struct smb2_context *smb2, const char *path)
 
 	rc = wait_for_reply(smb2, cb_data);
         if (rc < 0) {
-                KPrintF("[smb2_unlink] wait failed. RC:%ld\n", rc);
+                // KPrintF("[smb2_unlink] wait failed. RC:%ld\n", rc);
                 cb_data->status = SMB2_STATUS_CANCELLED;
                 return cb_data->status;
 	}
 
         rc = cb_data->status;
-        KPrintF("[smb2_unlink] status:%ld\n", rc);
+        // KPrintF("[smb2_unlink] status:%ld\n", rc);
  out:
         free(cb_data);
 
-        KPrintF("[smb2_unlink] RC:%ld\n", rc);
+        // KPrintF("[smb2_unlink] RC:%ld\n", rc);
 	return rc;
 }
 

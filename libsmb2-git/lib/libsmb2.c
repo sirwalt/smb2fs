@@ -345,6 +345,7 @@ decode_dirents(struct smb2_context *smb2, struct smb2dir *dir,
                 ent->dirent.st.smb2_ctime_nsec = fs.change_time.tv_usec * 1000;
                 ent->dirent.st.smb2_btime = fs.creation_time.tv_sec;
                 ent->dirent.st.smb2_btime_nsec = fs.creation_time.tv_usec * 1000;
+                ent->dirent.st.smb2_raw_file_attributes = fs.file_attributes;
 
                 offset += fs.next_entry_offset;
         } while (fs.next_entry_offset);

@@ -764,6 +764,7 @@ static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
 	// KPrintF((STRPTR)"[smb2fs] smb2fs_fgetattr started. Path:%s\n", path);
 	struct smb2fh      *smb2fh;
 	struct smb2_stat_64 smb2_st;
+	char                pathbuf[MAXPATHLEN];
 	int                 rc;
 	size_t				uaefsdb_size = 0;
 	u_int8_t			uaefsdb_buffer[UAEFSDB_LEN];
@@ -797,6 +798,13 @@ static int smb2fs_fgetattr(const char *path, struct fbx_stat *stbuf,
 			return rc;
 		}
 	} while(rc < 0);
+
+	if (fsd->rootdir != NULL)
+	{
+		strlcpy(pathbuf, fsd->rootdir, sizeof(pathbuf));
+		strlcat(pathbuf, path, sizeof(pathbuf));
+		path = pathbuf;
+	}
 
 	if (path[0] == '/') path++; /* Remove initial slash */
 
@@ -1051,6 +1059,12 @@ static int smb2fs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler
 	struct smb2dir    *smb2dir;
 	struct smb2dirent *ent;
 	struct fbx_stat    stbuf;
+	char                pathbuf[MAXPATHLEN];
+	char                pathbuf2[MAXPATHLEN];
+	char 				*itempath;
+	size_t				uaefsdb_size = 0;
+	u_int8_t			uaefsdb_buffer[UAEFSDB2_LEN];
+	int 				rc;
 
 	if (fsd == NULL)
 	{
@@ -1073,9 +1087,70 @@ static int smb2fs_readdir(const char *path, void *buffer, fuse_fill_dir_t filler
 	if (smb2dir == NULL)
 		return -EINVAL;
 
+	if (fsd->rootdir != NULL)
+	{
+		strlcpy(pathbuf, fsd->rootdir, sizeof(pathbuf));
+		strlcat(pathbuf, path, sizeof(pathbuf));
+	}
+	else
+	{
+		strlcpy(pathbuf, path, sizeof(pathbuf));
+	}
+
+	strlcat(pathbuf, "/", sizeof(pathbuf)); /* add seperater slash */
+	path = pathbuf;
+
+	if (path[0] == '/') path++; /* Remove initial slash */
+
 	while ((ent = smb2_readdir(fsd->smb2, smb2dir)) != NULL)
 	{
+		strlcpy(pathbuf2, path, sizeof(pathbuf2));
+		strlcat(pathbuf2, ent->name, sizeof(pathbuf2));
+		itempath = pathbuf2;
+		if (itempath[0] == '/') itempath++; /* Remove initial slash */
+
+		// do {
+		// 	rc = smb2_stat(fsd->smb2, path, &smb2_st);
+		// 	if (rc == SMB2_STATUS_CANCELLED)
+		// 	{
+		// 		if(!handle_connection_fault())
+		// 			return -ENODEV;
+		// 	}
+		// 	else if(rc < 0)
+		// 	{
+		// 		// KPrintF("[smb2fs_getattr] r2: %ld\n", rc);
+		// 		// KPrintF("[smb2fs_getattr] r2_text: %s\n", nterror_to_str(rc));
+		// 		return rc;
+		// 	}
+		// } while(rc < 0);
+
+		do {
+			uaefsdb_size = rc = smb2fs_read_uaefsdb(itempath, uaefsdb_buffer, UAEFSDB2_LEN);
+			if (rc == SMB2_STATUS_CANCELLED)
+			{
+				if(!handle_connection_fault())
+					return -ENODEV;
+			}
+			else if(rc < 0)
+			{
+				uaefsdb_size = 0;
+				break;
+			}
+		} while(rc < 0);
+		// KPrintF((STRPTR)"[smb2fs] Alternative Stream:%s\n",path);
+		// KPrintF((STRPTR)"[smb2fs] Alternative StreamSize:%ld\n",uaefsdb_size);
+
 		smb2fs_fillstat(&stbuf, &ent->st);
+		uint32_t pbits = uaefsdb_get_protection_bits(ent->st.smb2_raw_file_attributes, uaefsdb_buffer, uaefsdb_size);
+		stbuf.st_mode |= pbits;
+
+		// KPrintF((STRPTR)"[smb2fs] itempath:%s\n",itempath);
+		// KPrintF((STRPTR)"[smb2fs] smb2_raw_file_attributes:%ld\n",ent->st.smb2_raw_file_attributes);
+		// KPrintF((STRPTR)"[smb2fs] rc:%ld\n",rc);
+		// KPrintF((STRPTR)"[smb2fs] pbits:%ld\n",pbits);
+		// KPrintF((STRPTR)"[smb2fs] pathbuf:%s\n",pathbuf);
+		// KPrintF((STRPTR)"[smb2fs] pathbuf2:%s\n",pathbuf2);
+		// KPrintF((STRPTR)"[smb2fs] itempath:%s\n",itempath);
 		filler(buffer, ent->name, &stbuf, 0);
 	}
 
